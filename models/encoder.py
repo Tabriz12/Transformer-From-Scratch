@@ -10,6 +10,20 @@ def scaled_dot_product_attention(Key, Query, Value):
     return nn.Softmax((Query @ Key.T)/math.sqrt(config.d_model)) @ Value
 
 
+def position_embedding(x):
+
+        pos_embeddings = []
+
+        for pos, emb in enumerate(x):
+
+            if pos % 2 == 0:
+                vector = [math.sin(pos/10000**(idx/config.embedding_dim))  for idx, el in enumerate(emb)]
+            else: 
+                vector = [math.cos(pos/10000**(idx/config.embedding_dim))  for idx, el in enumerate(emb)]
+            
+            pos_embeddings.append(vector)
+        
+        return torch.tensor(pos_embeddings)
 
 class FeedForward(nn.Module):
     def __init__(self, dim_in = config.embedding_dim,
@@ -90,25 +104,9 @@ class Encoder(nn.Module):
         self.attention_model = MultiHeadAttention()
         self.ff_model = FeedForward()
 
-    def _position_embedding(self, x):
-
-        pos_embeddings = []
-
-        for pos, emb in enumerate(x):
-
-            if pos % 2 == 0:
-                vector = [math.sin(pos/10000**(idx/config.embedding_dim))  for idx, el in enumerate(emb)]
-            else: 
-                vector = [math.cos(pos/10000**(idx/config.embedding_dim))  for idx, el in enumerate(emb)]
-            
-            pos_embeddings.append(vector)
-        
-        return torch.tensor(pos_embeddings)
-    
-
     def forward(self, x):
 
-        pos_embs = self._position_embedding(x)
+        pos_embs = position_embedding(x)
 
         x = x + pos_embs
 
