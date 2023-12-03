@@ -22,7 +22,7 @@ def train_one_epoch(data_loader, model, opt, epoch):
         
         opt.zero_grad()
 
-        loss = model(en, tr)
+        loss = model(en, en_attention, tr, tr_attention)
 
         loss.backward()
 

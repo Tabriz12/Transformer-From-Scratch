@@ -46,8 +46,8 @@ class WMT16(Dataset):
 
         #implement embedding + padding for each batch (+ attention masks)
 
-        en = torch.FloatTensor(self.dataset[index][0])
-        tr = torch.FloatTensor(self.dataset[index][1])
+        en = torch.LongTensor(self.dataset[index][0]).to(config.device)
+        tr = torch.LongTensor(self.dataset[index][1]).to(config.device)
 
         #print(self.tokenizer.decode(self.dataset[index][0]))
         #print(self.tokenizer.decode(self.dataset[index][1]))
