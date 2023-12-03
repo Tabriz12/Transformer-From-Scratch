@@ -6,46 +6,6 @@ from torch.utils.data import DataLoader
 
 
 
-def find_index(list, el):
-
-    for idx, item in enumerate(list):
-
-        if item == el:
-            return idx
-
-
-def random_sorted_batches(indices, batch_size, select_window):
-
-    '''
-    
-    Way too slow
-    
-    
-    '''
-
-    tot = len(indices)
-
-    not_selected = []
-
-    for _ in tqdm(range(0, tot, batch_size), total=int(tot/batch_size)):
-    
-        start_item = random.choice(indices)
-        
-        cur_id = find_index(indices, start_item)
-
-        left = min(cur_id, select_window)  # selecting window size from left
-
-        right = min(len(indices) - 1 - cur_id, select_window) # selecting window size from right
-
-        selected_ids = random.sample(indices[cur_id-left:cur_id+right], batch_size)
-
-        not_selected.append(selected_ids)
-
-        indices = list(set(indices).difference(set(selected_ids)))
-
-    
-    return not_selected
-
 def finer_batches(indices, batch_size):
 
     '''
@@ -132,3 +92,42 @@ def my_collate_fn(batch):
     tr_attention_masks = torch.Tensor([([1] * len(el) + [0] * (tr_max-len(el))) for el in tr])
 
     return en_padded, tr_padded, en_attention_masks, tr_attention_masks
+
+
+
+def find_index(list, el):
+
+    for idx, item in enumerate(list):
+
+        if item == el:
+            return idx
+
+
+def random_sorted_batches(indices, batch_size, select_window):
+
+    '''
+    More randomized batches but too slow, may optimize
+    '''
+
+    tot = len(indices)
+
+    not_selected = []
+
+    for _ in tqdm(range(0, tot, batch_size), total=int(tot/batch_size)):
+    
+        start_item = random.choice(indices)
+        
+        cur_id = find_index(indices, start_item)
+
+        left = min(cur_id, select_window)  # selecting window size from left
+
+        right = min(len(indices) - 1 - cur_id, select_window) # selecting window size from right
+
+        selected_ids = random.sample(indices[cur_id-left:cur_id+right], batch_size)
+
+        not_selected.append(selected_ids)
+
+        indices = list(set(indices).difference(set(selected_ids)))
+
+    
+    return not_selected
