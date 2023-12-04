@@ -16,7 +16,7 @@ class WMT16(Dataset):
                  cache_file='tokenized_dataset.pkl'):
         super().__init__()
 
-        self.tokenizer = tiktoken.get_encoding(tokenizer)
+        
 
         #print((self.tokenizer.n_vocab)) #vocab size
  
@@ -29,6 +29,8 @@ class WMT16(Dataset):
                 raise ValueError(f"Tokenized dataset not found at {cache_file}. Tokenize the dataset first by setting 'from_disk' = False")
 
         else:
+            self.tokenizer = tiktoken.get_encoding(tokenizer)
+            
             self.dataset = load_dataset(dataset, subset, split=split)
         
             self.dataset = [[self.tokenizer.encode(sentence['translation']['en']), self.tokenizer.encode(sentence['translation']['tr'])] for sentence in self.dataset]

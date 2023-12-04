@@ -3,7 +3,7 @@ from tqdm import tqdm
 from torch.nn.utils.rnn import pad_sequence
 import random
 from torch.utils.data import DataLoader
-
+import config
 
 
 def finer_batches(indices, batch_size):
@@ -72,6 +72,22 @@ class SmartBatchingDataLoader(DataLoader):
             yield batch_data
 
 
+def attention_mask(sequence, max_len):
+
+    seq_len = len(sequence)
+
+    line = torch.Tensor([
+        [0.0] * seq_len + [float('-inf')] * (max_len - seq_len)
+    ]).squeeze()
+
+    top = line.unsqueeze(0).repeat(seq_len, 1)
+    bottom = torch.full(((max_len-seq_len), max_len), float('-inf'))
+    mask_tensor = torch.cat((top, bottom), dim=0).unsqueeze(0)
+    return mask_tensor
+
+
+
+
 
 def my_collate_fn(batch):
 
@@ -79,19 +95,29 @@ def my_collate_fn(batch):
     tr =[sentence[1] for sentence in batch]
 
 
+
     # Pad sequences to the length of the longest sequence in the batch
     en_padded = pad_sequence(en, batch_first=True)
     tr_padded = pad_sequence(tr, batch_first=True)
-
+    
     en_max = en_padded.size(dim=1)
 
     tr_max = tr_padded.size(dim=1)
+  
+    for idx, sequence in enumerate(en):
+       if not idx: 
+           en_attention_mask = attention_mask(sequence, en_max)
+       else:
+           en_attention_mask = torch.cat((en_attention_mask,  attention_mask(sequence, en_max)), dim=0)
+       
 
-    en_attention_masks = torch.Tensor([([1] * len(el) + [0] * (en_max-len(el))) for el in en])
+    for idx, sequence in enumerate(tr):
+       if not idx: 
+           tr_attention_mask = attention_mask(sequence, tr_max)
+       else:
+           tr_attention_mask = torch.cat((tr_attention_mask,  attention_mask(sequence, tr_max)), dim=0)
 
-    tr_attention_masks = torch.Tensor([([1] * len(el) + [0] * (tr_max-len(el))) for el in tr])
-
-    return en_padded, tr_padded, en_attention_masks, tr_attention_masks
+    return en_padded, tr_padded, en_attention_mask.to(config.device), tr_attention_mask.to(config.device)
 
 
 
