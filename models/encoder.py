@@ -1,32 +1,60 @@
 import torch
 from torch import nn
+from torch.nn import functional as F
 import math
 import config
+import einops
+
+
+def scaled_dot_product_attention(Key: torch.Tensor, Query: torch.Tensor, Value: torch.Tensor, 
+                                 mask: torch.Tensor = None, attending_idx: int = None):
+
+    '''
+
+    mask -> batch_size, seq_len, seq_len
+    
+    '''
+
+    if attending_idx:
+        '''
+
+        fill all with -inf after attending idx i mask
+        
+        '''
+        pass
+
+    mask = einops.repeat(mask, 'b e s -> b h e s', h=config.attention_heads) # adding heads
+
+    attn = (Query @ Key.permute(0,1,3,2))/math.sqrt(Key.size(-1))# batch size, heads, seq_len, seq_len
+
+    attn = F.softmax(attn + mask, dim=-1) @ Value # Batch size, heads, seq_len, dim
+    
+
+    return attn
 
 
 
-def scaled_dot_product_attention(Key, Query, Value):
+def position_embedding(x: torch.Tensor):
 
-    return nn.Softmax((Query @ Key.T)/math.sqrt(config.d_model)) @ Value
+    
 
-def masked_dot_product_attention(Key, Query, Value, mask):
-    pass
+    res = torch.zeros_like(x)
 
-
-def position_embedding(x):
-
-        pos_embeddings = []
-
-        for pos, emb in enumerate(x):
+    for batch_id, batch in enumerate(x):
+        for pos, token in enumerate(batch):
 
             if pos % 2 == 0:
-                vector = [math.sin(pos/10000**(idx/config.embedding_dim))  for idx, el in enumerate(emb)]
-            else: 
-                vector = [math.cos(pos/10000**(idx/config.embedding_dim))  for idx, el in enumerate(emb)]
+                vector = torch.FloatTensor([math.sin(pos/10000**(idx/config.embedding_dim)) for idx in range(config.embedding_dim)])
             
-            pos_embeddings.append(vector)
-        
-        return torch.tensor(pos_embeddings)
+            else:
+                vector = torch.FloatTensor([math.cos(pos/10000**(idx/config.embedding_dim)) for idx in range(config.embedding_dim)])
+            
+            res[batch_id, pos] = vector
+    
+    assert x.size() == res.size()
+    
+
+    return res
 
 class FeedForward(nn.Module):
     def __init__(self, dim_in = config.embedding_dim,
@@ -55,45 +83,61 @@ class FeedForward(nn.Module):
 class MultiHeadAttention(nn.Module):
 
 
-    def __init__(self, 
-                key = nn.Parameter(torch.rand(config.d_model, config.embedding_dim), requires_grad=True),
-                query = nn.Parameter(torch.rand(config.d_model, config.embedding_dim), requires_grad=True), 
-                value = nn.Parameter(torch.rand(config.d_model, config.embedding_dim), requires_grad=True),
-                d_model = config.d_model, 
+    def __init__(self,
+                embedding_dim = config.embedding_dim,
+                d_k_q = config.d_k_q, 
+                d_v = config.d_v,
                 heads = config.attention_heads,
                 attention_f = scaled_dot_product_attention):
 
         super().__init__()
-
-        self.key = key
-        self.query = query
-        self.value = value
-        self.d_model = d_model
+        self.d_k_q = d_k_q
+        self.d_v = d_v
+        self.embedding_dim = embedding_dim
         self.heads = heads
         self.attention_f = attention_f
 
-        self.linear_layers = nn.ModuleList([nn.Linear(self.d_model, self.d_model) for i in range(self.heads*3)])
-        self.last_linear = nn.Linear(self.d_model*self.heads, self.d_model*self.heads)
-        self.layer_norm = nn.LayerNorm(self.d_model*self.heads)
+        self.key_mapping = nn.Linear(embedding_dim, d_k_q * heads, bias=False)
+        self.query_mapping = nn.Linear(embedding_dim, d_k_q * heads, bias=False)
+        self.value_mapping = nn.Linear(embedding_dim, d_v * heads, bias=False)
+
+        self.last_linear = nn.Linear(embedding_dim, embedding_dim)
+        self.layer_norm = nn.LayerNorm(embedding_dim)
 
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor, x_attention: torch.Tensor):
 
-        Key = x @ self.key.T
-        Query = x @ self.query.T
-        Value = x @ self.value.T
+        '''
+        x -> [batch_size, sequence length, embedding_dim ]
+        x_attention -> [batch_size, sequence length  ]
 
-        for idx in range(0, len(self.linear_layers), 3):
+        '''
 
-            key_mapped = self.linear_layers[idx](Key)
-            query_mapped = self.linear_layers[idx+2](Query)
-            value_mapped = self.linear_layers[idx+1](Value)
-            
-            if idx == 0: concatted_attentions = self.attention_f(key_mapped, query_mapped, value_mapped)
-            else: concatted_attentions = torch.cat(concatted_attentions, self.attention_f(key_mapped, query_mapped, value_mapped))
         
+        #multi_x = einops.repeat(x, 'b t e -> b t h e', h=self.heads)
 
-        out = self.last_linear(concatted_attentions)
+
+        Key = self.key_mapping(x)
+        Query = self.query_mapping(x)
+        Value = self.value_mapping(x)
+
+        Key = Key.reshape(x.size(0), x.size(1), self.heads, self.d_k_q) # Batch size, seq_len, heads, dim
+        Query = Query.reshape(x.size(0), x.size(1), self.heads, self.d_k_q)
+        Value = Value.reshape(x.size(0), x.size(1), self.heads, self.d_v)
+
+        Key = Key.permute(0,2,1,3)  # Batch size, heads, seq_len, dim
+        Query = Query.permute(0,2,1,3)
+        Value = Value.permute(0,2,1,3)
+
+        attention = self.attention_f(Key, Query, Value, x_attention)
+
+        attention = attention.permute(0,2,1,3)
+        
+        concatted_attention = attention.reshape(attention.size(0), attention.size(1), -1)
+
+        assert concatted_attention.size() == x.size()
+
+        out = self.last_linear(concatted_attention)
 
         out = self.layer_norm(out + x)
 
@@ -108,17 +152,27 @@ class Encoder(nn.Module):
 
         self.stack = stack
 
+        self.embedding_layer = nn.Embedding(config.voc_size, config.embedding_dim)
+
         self.attention_layers = nn.ModuleList([MultiHeadAttention() for _ in range(stack)])
         self.ff_layers = nn.ModuleList([FeedForward() for _ in range(stack)])
 
-    def forward(self, x):
+    def forward(self, x, x_attention):
+
+        '''
+        x -> [batch_size, max num of tokens in the batch ]
+        x_attention -> [batch_size, max num of tokens in the batch ]
+
+        '''
+
+        x = self.embedding_layer(x)
 
         pos_embs = position_embedding(x)
 
         x = x + pos_embs
 
         for i in range(self.stack):
-            x = self.attention_layers[i](x)
+            x = self.attention_layers[i](x, x_attention)
             x = self.ff_layers[i](x)
     
         return x
@@ -135,7 +189,7 @@ class Decoder(nn.Module):
 
         self.attention_model = MultiHeadAttention()
 
-        self.masked_attention_model = MultiHeadAttention(attention_f=masked_dot_product_attention)
+        self.masked_attention_model = MultiHeadAttention(attention_f=scaled_dot_product_attention)
 
         self.feed_forward_model = FeedForward()
     
@@ -151,9 +205,6 @@ class Decoder(nn.Module):
 
 
             
-
-            
-
 
 
 
