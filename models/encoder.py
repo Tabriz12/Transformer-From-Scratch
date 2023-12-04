@@ -29,14 +29,11 @@ def scaled_dot_product_attention(Key: torch.Tensor, Query: torch.Tensor, Value: 
 
     attn = F.softmax(attn + mask, dim=-1) @ Value # Batch size, heads, seq_len, dim
     
-
     return attn
 
 
 
 def position_embedding(x: torch.Tensor):
-
-    
 
     res = torch.zeros_like(x)
 
@@ -113,10 +110,6 @@ class MultiHeadAttention(nn.Module):
 
         '''
 
-        
-        #multi_x = einops.repeat(x, 'b t e -> b t h e', h=self.heads)
-
-
         Key = self.key_mapping(x)
         Query = self.query_mapping(x)
         Value = self.value_mapping(x)
@@ -187,15 +180,19 @@ class Decoder(nn.Module):
 
         self.stack = stack
 
-        self.attention_model = MultiHeadAttention()
+        self.embedding_layer = nn.Embedding(config.voc_size, config.embedding_dim)
 
-        self.masked_attention_model = MultiHeadAttention(attention_f=scaled_dot_product_attention)
+        self.attention_models = nn.ModuleList([MultiHeadAttention() for _ in range(stack)])
 
-        self.feed_forward_model = FeedForward()
+        self.endoder_decoder_attentions = nn.ModuleList([MultiHeadAttention() for _ in range(stack)])
+
+        self.feed_forward_model = nn.ModuleList([FeedForward() for _ in range(stack)])
     
 
-    def forward(self,x):
-        
+    def forward(self, decoder_in, decoder_att, encoder_in, encoder_att):
+
+        decoder_in = self.embedding_layer(x)
+
         pos_embs = position_embedding(x)
 
         x = x + pos_embs
