@@ -4,7 +4,7 @@ import config
 from models.transformer import Transformer
 from torch.optim import SparseAdam
 from tqdm import tqdm
-import my_utils
+import data_proc
 
 
 def train_one_epoch(data_loader, model, opt, epoch):
@@ -50,7 +50,7 @@ def train_one_epoch(data_loader, model, opt, epoch):
 def main():
 
     training_data = WMT16(from_disk=True)
-    train_loader = my_utils.SmartBatchingDataLoader(training_data, config.batch_size, shuffle=True, collate_fn=my_utils.my_collate_fn, drop_last=True)
+    train_loader = data_proc.SmartBatchingDataLoader(training_data, config.batch_size, shuffle=True, collate_fn=data_proc.my_collate_fn, drop_last=True)
 
     model = Transformer().to(config.device)
 

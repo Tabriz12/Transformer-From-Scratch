@@ -102,17 +102,26 @@ class MultiHeadAttention(nn.Module):
         self.layer_norm = nn.LayerNorm(embedding_dim)
 
 
-    def forward(self, x: torch.Tensor, x_attention: torch.Tensor):
+    def forward(self, x: torch.Tensor, 
+                x_attention_mask: torch.Tensor,
+                decoder_x: torch.Tensor = None,
+                decoder_attention_mask:torch.Tensor=None):
 
         '''
         x -> [batch_size, sequence length, embedding_dim ]
-        x_attention -> [batch_size, sequence length  ]
+        x_attention_mask -> [batch_size, sequence length  ]
 
         '''
 
         Key = self.key_mapping(x)
         Query = self.query_mapping(x)
-        Value = self.value_mapping(x)
+
+        if decoder_x:
+
+            Value = self.value_mapping(decoder_x)
+
+        else:
+            Value = self.value_mapping(x)
 
         Key = Key.reshape(x.size(0), x.size(1), self.heads, self.d_k_q) # Batch size, seq_len, heads, dim
         Query = Query.reshape(x.size(0), x.size(1), self.heads, self.d_k_q)
@@ -122,7 +131,7 @@ class MultiHeadAttention(nn.Module):
         Query = Query.permute(0,2,1,3)
         Value = Value.permute(0,2,1,3)
 
-        attention = self.attention_f(Key, Query, Value, x_attention)
+        attention = self.attention_f(Key, Query, Value, x_attention_mask)
 
         attention = attention.permute(0,2,1,3)
         
@@ -182,20 +191,25 @@ class Decoder(nn.Module):
 
         self.embedding_layer = nn.Embedding(config.voc_size, config.embedding_dim)
 
-        self.attention_models = nn.ModuleList([MultiHeadAttention() for _ in range(stack)])
+        self.attention_layers = nn.ModuleList([MultiHeadAttention() for _ in range(stack)])
 
-        self.endoder_decoder_attentions = nn.ModuleList([MultiHeadAttention() for _ in range(stack)])
+        self.cross_attention_layers = nn.ModuleList([MultiHeadAttention() for _ in range(stack)])
 
-        self.feed_forward_model = nn.ModuleList([FeedForward() for _ in range(stack)])
+        self.fedd_forward_layers = nn.ModuleList([FeedForward() for _ in range(stack)])
     
 
     def forward(self, decoder_in, decoder_att, encoder_in, encoder_att):
 
-        decoder_in = self.embedding_layer(x)
+        decoder_in = self.embedding_layer(decoder_in)
 
-        pos_embs = position_embedding(x)
+        pos_embs = position_embedding(decoder_in)
 
-        x = x + pos_embs
+        decoder_in = decoder_in + pos_embs
+
+        for i in range(self.stack):
+            x = self.attention_layers[i](decoder_in, decoder_att)
+            x = 
+            x = self.ff_layers[i](x)
 
 
 
