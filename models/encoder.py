@@ -6,31 +6,160 @@ import config
 import einops
 
 
+def create_attention_mask(batch):
+
+    for idx, sequence in enumerate(batch):
+
+        max_len = len(sequence)
+        seq_len = sum(sequence)
+
+        line = torch.Tensor([
+            [0.0] * seq_len + [float('-inf')] * (max_len - seq_len)
+        ]).squeeze()
+
+        top = line.unsqueeze(0).repeat(seq_len, 1)
+        bottom = torch.full(((max_len-seq_len), max_len), float('-inf'))
+        mask_tensor = torch.cat((top, bottom), dim=0).unsqueeze(0)
+        
+        if not idx: 
+            batched_mask = mask_tensor
+        else:
+            batched_mask = torch.cat((batched_mask,  mask_tensor), dim=0)
+
+    return batched_mask
+
+def create_cross_attention_mask(enc_batch, dec_batch):
+    
+    for batch_id in range(config.batch_size):
+        c = len(enc_batch[batch_id])
+        seq_len_e = sum(enc_batch[batch_id])
+        seq_len_d = sum(dec_batch[batch_id])
+        r = len(dec_batch[batch_id])
+
+        line = torch.Tensor([
+            [0.0] * seq_len_e + [float('-inf')] * (c - seq_len_e)
+        ]).squeeze()
+
+        top = line.unsqueeze(0).repeat(seq_len_d, 1)
+        bottom = torch.full(((r-seq_len_d), c), float('-inf'))
+        mask_tensor = torch.cat((top, bottom), dim=0).unsqueeze(0)
+
+        if not batch_id: 
+            batched_mask = mask_tensor
+        else:
+            batched_mask = torch.cat((batched_mask,  mask_tensor), dim=0)
+        
+        return batched_mask
+
+
 def scaled_dot_product_attention(Key: torch.Tensor, Query: torch.Tensor, Value: torch.Tensor, 
-                                 mask: torch.Tensor = None, attending_idx: int = None):
+                                 input_attention_mask: torch.Tensor = None, triange_mask: torch.Tensor = None,
+                                 output_attention_mask:torch.Tensor= None):
 
     '''
 
-    mask -> batch_size, seq_len, seq_len
+    attention_mask, output_attention_mask -> [batch_size, seq_len]
+    
+    decoder_mask -> [batch_size, seq_len, seq_len]
+
+    Key, Query, Value -> [batch size, heads, seq_len, dim]
     
     '''
 
-    if attending_idx:
-        '''
 
-        fill all with -inf after attending idx i mask
+    if triange_mask:
+
+        if output_attention_mask: ## cross attention
+
+            attention_mask = create_attention_mask(input_attention_mask, output_attention_mask)
+
+            print(attention_mask.size())
+
+            # + triangle mask
+
+            #decoder_mask = output_attention_mask + decoder_mask
+
         
-        '''
-        pass
+        else: ## decoder masked self attention
+            attention_mask = create_attention_mask(output_attention_mask)
+            attention_mask = attention_mask + triange_mask
 
-    mask = einops.repeat(mask, 'b e s -> b h e s', h=config.attention_heads) # adding heads
+    else: ###  self attention (encoder)
+        attention_mask = create_attention_mask(input_attention_mask)
 
-    attn = (Query @ Key.permute(0,1,3,2))/math.sqrt(Key.size(-1))# batch size, heads, seq_len, seq_len
 
-    attn = F.softmax(attn + mask, dim=-1) @ Value # Batch size, heads, seq_len, dim
+    
+
+    attention_mask = einops.repeat(attention_mask, 'b e s -> b h e s', h=config.attention_heads) # adding heads
+
+    attn = (Query @ Key.permute(0,1,3,2))/math.sqrt(Key.size(-1)) # batch size, heads, seq_len, seq_len
+
+    assert attn.size() == attention_mask.size()
+
+    print(attn.size())
+
+    '''
+
+    attn for self attention -> [batch size, heads, seq_len, seq_len]
+
+    attn for cross attention -> [batch size, heads, seq_len decoder, seq_len encoder]
+
+    @ Value self attention -> [batch size, heads, seq_len, embedding dim] 
+
+    @ Value cross attention -> [batch size, heads, seq_len decoder, embedding dim] 
+
+    '''
+
+    attn = F.softmax(attn + attention_mask, dim=-1) @ Value 
     
     return attn
 
+
+def scaled_dot_product_attention_old(Key: torch.Tensor, Query: torch.Tensor, Value: torch.Tensor, 
+                                 attention_mask: torch.Tensor = None, decoder_mask: torch.Tensor = None,
+                                 output_attention_mask:torch.Tensor= None):
+
+    '''
+
+    attention_mask, decoder_mask -> [batch_size, seq_len, seq_len]
+
+    Key, Query, Value -> [batch size, heads, seq_len, dim]
+    
+    '''
+    if decoder_mask:
+
+        if output_attention_mask:
+
+            decoder_mask = output_attention_mask + decoder_mask
+
+        print(attention_mask)
+
+        attention_mask = attention_mask + decoder_mask # adding two masks together
+
+        print(attention_mask)
+
+        s
+    
+
+    attention_mask = einops.repeat(attention_mask, 'b e s -> b h e s', h=config.attention_heads) # adding heads
+
+    attn = (Query @ Key.permute(0,1,3,2))/math.sqrt(Key.size(-1))# batch size, heads, seq_len, seq_len
+
+    '''
+
+    attn for self attention -> [batch size, heads, seq_len, seq_len]
+
+    attn for cross attention -> [batch size, heads, seq_len decoder, seq_len encoder]
+
+    @ Value self attention -> [batch size, heads, seq_len, embedding dim] 
+
+    @ Value cross attention -> [batch size, heads, seq_len decoder, embedding dim] 
+
+    '''
+
+    attn = F.softmax(attn + attention_mask, dim=-1) @ Value 
+    
+    return attn
 
 
 def position_embedding(x: torch.Tensor):
@@ -85,7 +214,10 @@ class MultiHeadAttention(nn.Module):
                 d_k_q = config.d_k_q, 
                 d_v = config.d_v,
                 heads = config.attention_heads,
-                attention_f = scaled_dot_product_attention):
+                attention_f = scaled_dot_product_attention,
+                decoder_mask: bool = False,
+                cross_attention: bool = False
+                ):
 
         super().__init__()
         self.d_k_q = d_k_q
@@ -93,6 +225,8 @@ class MultiHeadAttention(nn.Module):
         self.embedding_dim = embedding_dim
         self.heads = heads
         self.attention_f = attention_f
+        self.decoder_mask = decoder_mask
+        self.cross_attention = cross_attention
 
         self.key_mapping = nn.Linear(embedding_dim, d_k_q * heads, bias=False)
         self.query_mapping = nn.Linear(embedding_dim, d_k_q * heads, bias=False)
@@ -104,24 +238,30 @@ class MultiHeadAttention(nn.Module):
 
     def forward(self, x: torch.Tensor, 
                 x_attention_mask: torch.Tensor,
-                decoder_x: torch.Tensor = None,
-                decoder_attention_mask:torch.Tensor=None):
+                x_cross: torch.Tensor = None,
+                attention_cross: torch.Tensor = None,
+
+                ):
 
         '''
         x -> [batch_size, sequence length, embedding_dim ]
         x_attention_mask -> [batch_size, sequence length  ]
 
+        x_attention_mask -> mask to ignore padding tokens in attention
+        decoder mask -> mask for decoder component to prevent tokens to attend subsequent ones
+
         '''
 
-        Key = self.key_mapping(x)
         Query = self.query_mapping(x)
 
-        if decoder_x:
-
-            Value = self.value_mapping(decoder_x)
-
+        if self.cross_attention:
+            Key = self.key_mapping(x_cross)
+            Value = self.value_mapping(x_cross)
         else:
+            Key = self.key_mapping(x)
             Value = self.value_mapping(x)
+
+        
 
         Key = Key.reshape(x.size(0), x.size(1), self.heads, self.d_k_q) # Batch size, seq_len, heads, dim
         Query = Query.reshape(x.size(0), x.size(1), self.heads, self.d_k_q)
@@ -131,7 +271,28 @@ class MultiHeadAttention(nn.Module):
         Query = Query.permute(0,2,1,3)
         Value = Value.permute(0,2,1,3)
 
-        attention = self.attention_f(Key, Query, Value, x_attention_mask)
+        if self.decoder_mask:
+
+            mask_decoder = torch.full((x.size(1), x.size(1)), float('-inf'))
+            mask_decoder = torch.triu(mask_decoder, diagonal=1)
+            '''
+            mask_decoder -> [[0, -inf, -inf, -inf]
+                             [0,  0,   -inf, -inf]
+                             [0,  0,    0,   -inf]
+                             [0,  0,    0,      0]
+            
+            '''
+            mask_decoder = einops.repeat(mask_decoder, 'x y -> b x y', b=x.size(0))
+
+            print(mask_decoder)
+
+            sss
+
+            attention = self.attention_f(Key, Query, Value, x_attention_mask, mask_decoder)
+
+
+        else: attention = self.attention_f(Key, Query, Value, x_attention_mask)
+
 
         attention = attention.permute(0,2,1,3)
         
@@ -191,25 +352,25 @@ class Decoder(nn.Module):
 
         self.embedding_layer = nn.Embedding(config.voc_size, config.embedding_dim)
 
-        self.attention_layers = nn.ModuleList([MultiHeadAttention() for _ in range(stack)])
+        self.attention_layers = nn.ModuleList([MultiHeadAttention(decoder_mask=True) for _ in range(stack)])
 
-        self.cross_attention_layers = nn.ModuleList([MultiHeadAttention() for _ in range(stack)])
+        self.cross_attention_layers = nn.ModuleList([MultiHeadAttention(decoder_mask=True, cross_attention=True) for _ in range(stack)])
 
         self.fedd_forward_layers = nn.ModuleList([FeedForward() for _ in range(stack)])
     
 
-    def forward(self, decoder_in, decoder_att, encoder_in, encoder_att):
+    def forward(self, x_decoder, decoder_att, x_encoder, encoder_att):
 
-        decoder_in = self.embedding_layer(decoder_in)
+        x_decoder = self.embedding_layer(x_decoder)
 
-        pos_embs = position_embedding(decoder_in)
+        pos_embs = position_embedding(x_decoder)
 
-        decoder_in = decoder_in + pos_embs
+        x_decoder = x_decoder + pos_embs
 
         for i in range(self.stack):
-            x = self.attention_layers[i](decoder_in, decoder_att)
-            x = 
-            x = self.ff_layers[i](x)
+            x_decoder = self.attention_layers[i](x_decoder, decoder_att)
+            x_decoder = self.cross_attention_layers[i](x_decoder, decoder_att, x_encoder, encoder_att)
+            x_decoder = self.fedd_forward_layers[i](x_decoder)
 
 
 
