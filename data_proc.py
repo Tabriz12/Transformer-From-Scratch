@@ -57,6 +57,7 @@ class SmartBatchingDataLoader(DataLoader):
         indices = self.dataset.get_indices_sorted_by_length()
 
         indices_shuffled = finer_batches(indices, self.batch_size) 
+        
 
         for i in range(0, len(indices_shuffled), self.batch_size):
 
@@ -89,7 +90,7 @@ def attention_mask(sequence, max_len):
 
 
 
-def my_collate_fn(batch):
+def my_collate_fn_old(batch):
 
     en = [sentence[0] for sentence in batch]
     tr =[sentence[1] for sentence in batch]
@@ -118,6 +119,36 @@ def my_collate_fn(batch):
            tr_attention_mask = torch.cat((tr_attention_mask,  attention_mask(sequence, tr_max)), dim=0)
 
     return en_padded, tr_padded, en_attention_mask.to(config.device), tr_attention_mask.to(config.device)
+
+def my_collate_fn(batch):
+
+    en = [sentence[0] for sentence in batch]
+    tr =[sentence[1] for sentence in batch]
+
+
+
+    # Pad sequences to the length of the longest sequence in the batch
+    en_padded = pad_sequence(en, batch_first=True)
+    tr_padded = pad_sequence(tr, batch_first=True)
+    
+    en_max = en_padded.size(dim=1)
+
+    tr_max = tr_padded.size(dim=1)
+
+
+    en_attention_mask = []
+    for sequence in en:
+        seq_len = len(sequence)
+        en_attention_mask.append([1] * seq_len + [0] * (en_max - seq_len))
+    
+    tr_attention_mask = []
+    for sequence in tr:
+        seq_len = len(sequence)
+        tr_attention_mask.append([1] * seq_len + [0] * (tr_max - seq_len))
+
+    
+
+    return en_padded, tr_padded, en_attention_mask, tr_attention_mask
 
 
 
