@@ -1,6 +1,8 @@
 import torch
 from torch import nn
 from models.encoder import Encoder, Decoder
+import config
+from torch.nn import functional as F
 
 
 class Transformer(nn.Module):
@@ -9,6 +11,7 @@ class Transformer(nn.Module):
         super().__init__()
         self.encoder = Encoder()
         self.decoder = Decoder()
+        self.final_linear = nn.Linear(config.embedding_dim, config.voc_size)
     
 
     def forward(self, en: torch.Tensor, 
@@ -18,4 +21,10 @@ class Transformer(nn.Module):
 
         encoder_out = self.encoder(en, en_attention)
 
-        return encoder_out
+        decoder_out = self.decoder(tr, tr_attention, encoder_out, en_attention)
+
+        out = self.final_linear(decoder_out)
+
+        out = F.softmax(out, dim=-1)
+
+        return out
