@@ -49,7 +49,7 @@ def create_cross_attention_mask(enc_batch, dec_batch):
         else:
             batched_mask = torch.cat((batched_mask,  mask_tensor), dim=0)
         
-        return batched_mask
+    return batched_mask
 
 
 def scaled_dot_product_attention(Key: torch.Tensor, Query: torch.Tensor, Value: torch.Tensor, 
@@ -67,13 +67,14 @@ def scaled_dot_product_attention(Key: torch.Tensor, Query: torch.Tensor, Value: 
     '''
 
 
-    if triange_mask:
+    if triange_mask != None:
 
-        if output_attention_mask: ## cross attention
+        if input_attention_mask != None: ## cross attention
 
-            attention_mask = create_attention_mask(input_attention_mask, output_attention_mask)
+            attention_mask = create_cross_attention_mask(input_attention_mask, output_attention_mask)
 
-            print(attention_mask.size())
+            print("Cross attention mask: {}".format(attention_mask.size()))
+
 
             # + triangle mask
 
@@ -88,7 +89,7 @@ def scaled_dot_product_attention(Key: torch.Tensor, Query: torch.Tensor, Value: 
         attention_mask = create_attention_mask(input_attention_mask)
 
 
-    
+    attention_mask = attention_mask.to(config.device)
 
     attention_mask = einops.repeat(attention_mask, 'b e s -> b h e s', h=config.attention_heads) # adding heads
 
@@ -96,7 +97,7 @@ def scaled_dot_product_attention(Key: torch.Tensor, Query: torch.Tensor, Value: 
 
     assert attn.size() == attention_mask.size()
 
-    print(attn.size())
+    print("Query @ Key size {}".format(attn.size()))
 
     '''
 
@@ -250,6 +251,8 @@ class MultiHeadAttention(nn.Module):
         x_attention_mask -> mask to ignore padding tokens in attention
         decoder mask -> mask for decoder component to prevent tokens to attend subsequent ones
 
+        x_cross -> Encoder
+
         '''
 
         Query = self.query_mapping(x)
@@ -257,15 +260,18 @@ class MultiHeadAttention(nn.Module):
         if self.cross_attention:
             Key = self.key_mapping(x_cross)
             Value = self.value_mapping(x_cross)
+            Key = Key.reshape(x_cross.size(0), x_cross.size(1), self.heads, self.d_k_q)
+            Value = Value.reshape(x_cross.size(0), x_cross.size(1), self.heads, self.d_k_q)
         else:
             Key = self.key_mapping(x)
             Value = self.value_mapping(x)
+            Key = Key.reshape(x.size(0), x.size(1), self.heads, self.d_k_q)
+            Value = Value.reshape(x.size(0), x.size(1), self.heads, self.d_v)
 
         
 
-        Key = Key.reshape(x.size(0), x.size(1), self.heads, self.d_k_q) # Batch size, seq_len, heads, dim
-        Query = Query.reshape(x.size(0), x.size(1), self.heads, self.d_k_q)
-        Value = Value.reshape(x.size(0), x.size(1), self.heads, self.d_v)
+        Query = Query.reshape(x.size(0), x.size(1), self.heads, self.d_k_q) # Batch size, seq_len, heads, dim
+        
 
         Key = Key.permute(0,2,1,3)  # Batch size, heads, seq_len, dim
         Query = Query.permute(0,2,1,3)
@@ -282,13 +288,18 @@ class MultiHeadAttention(nn.Module):
                              [0,  0,    0,      0]
             
             '''
-            mask_decoder = einops.repeat(mask_decoder, 'x y -> b x y', b=x.size(0))
+            mask_decoder = einops.repeat(mask_decoder, 'x y -> b x y', b=x.size(0)) ## triangle mask
 
-            print(mask_decoder)
+            if self.cross_attention:
 
-            sss
+                attention = self.attention_f(Key, Query, Value, attention_cross, mask_decoder, x_attention_mask)
 
-            attention = self.attention_f(Key, Query, Value, x_attention_mask, mask_decoder)
+                print(Key.size(), Query.size())
+
+            else:
+
+                attention = self.attention_f(Key, Query, Value, triange_mask = mask_decoder,
+                                         output_attention_mask = x_attention_mask)
 
 
         else: attention = self.attention_f(Key, Query, Value, x_attention_mask)
@@ -367,10 +378,16 @@ class Decoder(nn.Module):
 
         x_decoder = x_decoder + pos_embs
 
+        print(x_decoder.size())
+
         for i in range(self.stack):
             x_decoder = self.attention_layers[i](x_decoder, decoder_att)
             x_decoder = self.cross_attention_layers[i](x_decoder, decoder_att, x_encoder, encoder_att)
             x_decoder = self.fedd_forward_layers[i](x_decoder)
+        
+
+        return x_decoder
+        
 
 
 
