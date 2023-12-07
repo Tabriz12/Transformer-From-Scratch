@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 import config
 
 
+
 def finer_batches(indices, batch_size):
 
     '''
@@ -88,18 +89,15 @@ def attention_mask(sequence, max_len):
 
 
 
-
-
 def my_collate_fn_old(batch):
 
     en = [sentence[0] for sentence in batch]
     tr =[sentence[1] for sentence in batch]
 
-
-
     # Pad sequences to the length of the longest sequence in the batch
     en_padded = pad_sequence(en, batch_first=True)
     tr_padded = pad_sequence(tr, batch_first=True)
+
     
     en_max = en_padded.size(dim=1)
 
@@ -126,10 +124,9 @@ def my_collate_fn(batch):
     tr =[sentence[1] for sentence in batch]
 
 
-
     # Pad sequences to the length of the longest sequence in the batch
-    en_padded = pad_sequence(en, batch_first=True)
-    tr_padded = pad_sequence(tr, batch_first=True)
+    en_padded = pad_sequence(en, batch_first=True, padding_value=config.pad_token)
+    tr_padded = pad_sequence(tr, batch_first=True, padding_value=config.pad_token)
     
     en_max = en_padded.size(dim=1)
 

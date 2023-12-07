@@ -388,8 +388,4 @@ class Decoder(nn.Module):
 
         return x_decoder
         
-
-
-
- 
-    
+        

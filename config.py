@@ -7,7 +7,7 @@ d_v = 64
 attention_heads = 8
 encoder_stack = 6
 decoder_stack = 6
-batch_size = 12
+batch_size = 4
 
 #Data
 
@@ -15,6 +15,7 @@ dataset = 'wmt16'
 subset = 'tr-en'
 tokenizer = 'cl100k_base'
 voc_size = 100277
+pad_token = 0
 
 
 #training

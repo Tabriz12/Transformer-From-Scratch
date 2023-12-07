@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from models.encoder import Encoder, Decoder
+from models.encoder_decoder import Encoder, Decoder
 import config
 from torch.nn import functional as F
 
@@ -24,7 +24,5 @@ class Transformer(nn.Module):
         decoder_out = self.decoder(tr, tr_attention, encoder_out, en_attention)
 
         out = self.final_linear(decoder_out)
-
-        out = F.softmax(out, dim=-1)
 
         return out
